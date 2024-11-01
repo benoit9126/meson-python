@@ -496,6 +496,7 @@ class _EditableWheelBuilder(_WheelBuilder):
                        {self._top_level_modules!r},
                        {os.fspath(build_dir)!r},
                        {build_command!r},
+                       {str(source_dir)!r},
                        {verbose!r},
                    )''').encode('utf-8'))
 
@@ -739,7 +740,7 @@ class Project():
 
         if self._limited_api and bool(sysconfig.get_config_var('Py_GIL_DISABLED')):
             raise BuildError(
-                'The package targets Python\'s Limited API, which is not supported by free-threaded CPython. '
+                "The package targets Python's Limited API, which is not supported by free-threaded CPython. "
                 'The "python.allow_limited_api" Meson build option may be used to override the package default.')
 
     def _run(self, cmd: Sequence[str]) -> None:

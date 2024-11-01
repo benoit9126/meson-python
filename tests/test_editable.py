@@ -69,7 +69,7 @@ def test_collect(package_complex):
                 'tag': None}
         }
     }
-    tree = _editable.collect(install_plan)
+    tree = _editable.collect(install_plan, root)
     assert tree['complex']['__init__.py'] == os.path.join(root, 'complex', '__init__.py')
     assert tree['complex'][f'test{EXT_SUFFIX}'] == os.path.join(root, 'build', f'test{EXT_SUFFIX}')
     assert tree['complex']['more']['__init__.py'] == os.path.join(root, 'complex', 'more', '__init__.py')
@@ -82,7 +82,8 @@ def test_mesonpy_meta_finder(package_complex, tmp_path):
     project = mesonpy.Project(package_complex, tmp_path)
 
     # point the meta finder to the build directory
-    finder = _editable.MesonpyMetaFinder('complex', {'complex'}, os.fspath(tmp_path), project._build_command, True)
+    finder = _editable.MesonpyMetaFinder('complex', {'complex'}, os.fspath(tmp_path), project._build_command,
+                                         package_complex,True)
 
     # check repr
     assert repr(finder) == f'MesonpyMetaFinder(\'complex\', {str(tmp_path)!r})'
@@ -146,7 +147,8 @@ def test_resources(tmp_path):
     project = mesonpy.Project(package_path, tmp_path)
 
     # point the meta finder to the build directory
-    finder = _editable.MesonpyMetaFinder('simple', {'simple'}, os.fspath(tmp_path), project._build_command, True)
+    finder = _editable.MesonpyMetaFinder('simple', {'simple'}, os.fspath(tmp_path), project._build_command,
+                                         package_path,True)
 
     # verify that we can look up resources
     spec = finder.find_spec('simple')
@@ -165,7 +167,8 @@ def test_importlib_resources(tmp_path):
     project = mesonpy.Project(package_path, tmp_path)
 
     # point the meta finder to the build directory
-    finder = _editable.MesonpyMetaFinder('simple', {'simple'}, os.fspath(tmp_path), project._build_command, True)
+    finder = _editable.MesonpyMetaFinder('simple', {'simple'}, os.fspath(tmp_path), project._build_command,
+                                         package_path,True)
 
     try:
         # install the finder in the meta path
@@ -216,7 +219,8 @@ def test_editable_pkgutils_walk_packages(package_complex, tmp_path):
     # build a package in a temporary directory
     project = mesonpy.Project(package_complex, tmp_path)
 
-    finder = _editable.MesonpyMetaFinder('complex', {'complex'}, os.fspath(tmp_path), project._build_command, True)
+    finder = _editable.MesonpyMetaFinder('complex', {'complex'}, os.fspath(tmp_path), project._build_command,
+                                         package_complex,True)
 
     try:
         # install editable hooks
@@ -246,10 +250,49 @@ def test_editable_pkgutils_walk_packages(package_complex, tmp_path):
         del sys.meta_path[0]
         del sys.path_hooks[0]
 
+def test_editable_pkgutils_walk_packages_namespace(package_namespace, tmp_path):
+    # build a package in a temporary directory
+    project = mesonpy.Project(package_namespace, tmp_path)
+
+    finder = (_editable.MesonpyMetaFinder('namespace', {'namespace'}, os.fspath(tmp_path), project._build_command,
+                                          package_namespace,True))
+
+    try:
+        # install editable hooks
+        sys.meta_path.insert(0, finder)
+        sys.path_hooks.insert(0, finder._path_hook)
+
+        import namespace
+        packages = {m.name for m in pkgutil.walk_packages(namespace.__path__, namespace.__name__ + '.')}
+        assert packages == {
+            'namespace.lib1',
+            'namespace.lib1.extension',
+            'namespace.lib2',
+            'namespace.lib2.foo',
+        }
+
+        from namespace import lib1
+        packages = {m.name for m in pkgutil.walk_packages(lib1.__path__, lib1.__name__ + '.')}
+        assert packages == {
+            'namespace.lib1.extension',
+        }
+
+        from namespace import lib2
+        packages = {m.name for m in pkgutil.walk_packages(lib2.__path__, lib2.__name__ + '.')}
+        assert packages == {
+            'namespace.lib2.foo',
+        }
+
+    finally:
+        # remove hooks
+        del sys.meta_path[0]
+        del sys.path_hooks[0]
+
 
 def test_custom_target_install_dir(package_custom_target_dir, tmp_path):
     project = mesonpy.Project(package_custom_target_dir, tmp_path)
-    finder = _editable.MesonpyMetaFinder('package', {'package'}, os.fspath(tmp_path), project._build_command, True)
+    finder = _editable.MesonpyMetaFinder('package', {'package'}, os.fspath(tmp_path), project._build_command,
+                                         package_custom_target_dir, True)
     try:
         sys.meta_path.insert(0, finder)
         import package.generated.one
@@ -265,7 +308,7 @@ def test_editable_rebuild(package_purelib_and_platlib, tmp_path, verbose, args):
 
         finder = _editable.MesonpyMetaFinder(
             project._metadata.name, {'plat', 'pure'},
-            os.fspath(tmp_path), project._build_command,
+            os.fspath(tmp_path), project._build_command, project._source_dir,
             verbose=verbose,
         )
 
@@ -320,7 +363,7 @@ def test_editable_rebuild_error(package_purelib_and_platlib, tmp_path, verbose):
 
         finder = _editable.MesonpyMetaFinder(
             project._metadata.name, {'plat', 'pure'},
-            os.fspath(tmp_path), project._build_command,
+            os.fspath(tmp_path), project._build_command, project._source_dir,
             verbose=verbose,
         )
         path = package_purelib_and_platlib / 'plat.c'

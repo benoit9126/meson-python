@@ -230,7 +230,7 @@ def walk(src: str, exclude_files: Set[str], exclude_dirs: Set[str]) -> Iterator[
             relpath = os.path.relpath(dirsrc, src)
             if relpath in exclude_dirs:
                 dirnames.remove(name)
-            # sort to process directories determninistically
+            # sort to process directories deterministically
             dirnames.sort()
         for name in sorted(filenames):
             filesrc = os.path.join(root, name)
@@ -240,8 +240,9 @@ def walk(src: str, exclude_files: Set[str], exclude_dirs: Set[str]) -> Iterator[
             yield relpath
 
 
-def collect(install_plan: Dict[str, Dict[str, Any]]) -> Node:
+def collect(install_plan: Dict[str, Dict[str, Any]], source_dir: str) -> Node:
     tree = Node()
+    covered_dirs = set()
     for key, data in install_plan.items():
         for src, target in data.items():
             path = pathlib.Path(target['destination'])
@@ -250,9 +251,16 @@ def collect(install_plan: Dict[str, Dict[str, Any]]) -> Node:
                     exclude_files = {os.path.normpath(x) for x in target.get('exclude_files', [])}
                     exclude_dirs = {os.path.normpath(x) for x in target.get('exclude_dirs', [])}
                     for entry in walk(src, exclude_files, exclude_dirs):
-                        tree[(*path.parts[1:], *entry.split(os.sep))] = os.path.join(src, entry)
+                        file_key = (*path.parts[1:], *entry.split(os.sep))
+                        tree[file_key] = os.path.join(src, entry)
+                        covered_dirs.add(os.sep.join(file_key[:-1]))
                 else:
                     tree[path.parts[1:]] = src
+                    covered_dirs.add(os.sep.join(path.parts[1:-1]))
+
+    # Add in the tree other packages in the namespace if any.
+    for src in walk(source_dir, set(), covered_dirs):
+        tree[pathlib.Path(src).parts] = src
     return tree
 
 
@@ -287,11 +295,12 @@ def find_spec(fullname: str, tree: Node) -> Optional[importlib.machinery.ModuleS
 
 
 class MesonpyMetaFinder(importlib.abc.MetaPathFinder):
-    def __init__(self, package: str, names: Set[str], path: str, cmd: List[str], verbose: bool = False):
+    def __init__(self, package: str, names: Set[str], path: str, cmd: List[str], source_dir: str, verbose: bool = False):
         self._name = package
         self._top_level_modules = names
         self._build_path = path
         self._build_cmd = cmd
+        self._source_dir = source_dir
         self._verbose = verbose
         self._loaders: List[Tuple[type, str]] = []
 
@@ -349,7 +358,7 @@ class MesonpyMetaFinder(importlib.abc.MetaPathFinder):
         install_plan_path = os.path.join(self._build_path, 'meson-info', 'intro-install_plan.json')
         with open(install_plan_path, 'r', encoding='utf8') as f:
             install_plan = json.load(f)
-        return collect(install_plan)
+        return collect(install_plan, self._source_dir)
 
     def _path_hook(self, path: str) -> MesonpyPathFinder:
         if os.altsep:
@@ -388,7 +397,7 @@ class MesonpyPathFinder(importlib.abc.PathEntryFinder):
                 yield prefix + modname, False
 
 
-def install(package: str, names: Set[str], path: str, cmd: List[str], verbose: bool) -> None:
-    finder = MesonpyMetaFinder(package, names, path, cmd, verbose)
+def install(package: str, names: Set[str], path: str, cmd: List[str],source_dir:str, verbose: bool) -> None:
+    finder = MesonpyMetaFinder(package, names, path, cmd, source_dir,verbose)
     sys.meta_path.insert(0, finder)
     sys.path_hooks.insert(0, finder._path_hook)
